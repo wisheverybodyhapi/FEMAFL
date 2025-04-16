@@ -9,20 +9,6 @@ import logging
 import random
 from datetime import datetime
 
-from flcore.servers.serverlocal import Local
-from flcore.servers.serverproto import FedProto
-from flcore.servers.servergen import FedGen
-from flcore.servers.serverdistill import FedDistill
-from flcore.servers.serverlg import LG_FedAvg
-from flcore.servers.serverfml import FML
-from flcore.servers.serverkd import FedKD
-from flcore.servers.servergh import FedGH
-from flcore.servers.servertgp import FedTGP
-from flcore.servers.serverorth import FedOrth
-from flcore.servers.serverktl_stylegan_xl import FedKTL as FedKTL_stylegan_xl
-from flcore.servers.serverktl_stylegan_3 import FedKTL as FedKTL_stylegan_3
-from flcore.servers.serverktl_stable_diffusion import FedKTL as FedKTL_stable_diffusion
-
 from utils.result_utils import average_data
 from utils.mem_utils import MemReporter
 from utils.seed_utils import setup_seed
@@ -227,45 +213,10 @@ def run(args):
         
 
         # select algorithm
-        if args.algorithm == "Local":
-            server = Local(args, i)
-
-        elif args.algorithm == "FedProto":
-            server = FedProto(args, i)
-
-        elif args.algorithm == "FedGen":
-            server = FedGen(args, i)
-
-        elif args.algorithm == "FedDistill":
-            server = FedDistill(args, i)
-
-        elif args.algorithm == "LG-FedAvg":
-            server = LG_FedAvg(args, i)
-
-        elif args.algorithm == "FML":
-            server = FML(args, i)
-
-        elif args.algorithm == "FedKD":
-            server = FedKD(args, i)
-
-        elif args.algorithm == "FedGH":
-            server = FedGH(args, i)
-
-        elif args.algorithm == "FedTGP":
-            server = FedTGP(args, i)
-
-        elif args.algorithm == "FedOrth":
-            server = FedOrth(args, i)
-            
-        elif args.algorithm == "FedKTL-stylegan-xl":
-            server = FedKTL_stylegan_xl(args, i)
-
-        elif args.algorithm == "FedKTL-stylegan-3":
-            server = FedKTL_stylegan_3(args, i)
-
-        elif args.algorithm == "FedKTL-stable-diffusion":
-            server = FedKTL_stable_diffusion(args, i)
-            
+        if args.algorithm == "FedAvg":
+            server = FedAvg(args, i)
+        elif args.algorithm == "FEMAFL":
+            pass
         else:
             raise NotImplementedError
 

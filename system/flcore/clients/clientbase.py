@@ -48,8 +48,8 @@ class Client(object):
 
         self.train_slow = kwargs['train_slow']
         self.send_slow = kwargs['send_slow']
-        self.train_time_cost = {'num_rounds': 0, 'total_cost': 0.0}
-        self.send_time_cost = {'num_rounds': 0, 'total_cost': 0.0}
+        self.train_time_cost = {'num_rounds': 0, 'total_cost': 0.0, 'cur_train_time_cost': []}
+        self.send_time_cost = {'num_rounds': 0, 'total_cost': 0.0, 'cur_send_time_cost': []}
 
         self.loss = nn.CrossEntropyLoss()
 
