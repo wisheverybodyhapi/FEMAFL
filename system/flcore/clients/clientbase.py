@@ -9,8 +9,6 @@ from sklearn.preprocessing import label_binarize
 from sklearn import metrics
 from utils.data_utils import read_client_data
 from utils.model_utils import check_for_model
-from flcore.trainmodel.models import BaseHeadSplit
-
 
 
 class Client(object):
@@ -35,19 +33,13 @@ class Client(object):
         self.local_epochs = args.local_epochs
         self.logger = logger
 
-        # modification 2
-        if self.save_folder_name == 'temp' or check_for_model(self.model_folder_name) == False:
-            self.model = BaseHeadSplit(args, self.id).to(self.device)
-        else:
-            try:
-                self.model = load_item(self.role, 'model', self.model_folder_name)
-                self.logger.write("client_{} successfully load model from {}".format(self.id, self.model_folder_name))
-            except:
-                self.logger.write("client_{} fail to load model from {}".format(self.id, self.model_folder_name))
+        self.model = copy.deepcopy(args.model).to(self.device)
 
+        self.transmission_power = kwargs.get('transmission_power', 1.0)  # 默认值为1.0
+        self.compute_power = kwargs.get('compute_power', 1.0)  # 默认值为1.0
 
-        self.train_slow = kwargs['train_slow']
-        self.send_slow = kwargs['send_slow']
+        self.train_slow = kwargs.get('train_slow', False)
+        self.send_slow = kwargs.get('send_slow', False)
         self.train_time_cost = {'num_rounds': 0, 'total_cost': 0.0, 'cur_train_time_cost': []}
         self.send_time_cost = {'num_rounds': 0, 'total_cost': 0.0, 'cur_send_time_cost': []}
 
@@ -71,9 +63,23 @@ class Client(object):
             target_param.data = param.data.clone()
             # target_param.grad = param.grad.clone()
 
-    def update_parameters(self, model, new_params):
-        for param, new_param in zip(model.parameters(), new_params):
-            param.data = new_param.data.clone()
+    def set_parameters(self, model):
+        for new_param, old_param in zip(model.parameters(), self.model.parameters()):
+            old_param.data = new_param.data.clone()
+
+    def get_model_size(self):
+        """
+        计算模型的总大小（以字节为单位），用于统计传输梯度时的数据量。
+        
+        Returns:
+            int: 模型参数的总字节数
+        """
+        total_size = 0
+        for param in self.model.parameters():
+            # 获取参数的元素数量并乘以每个元素的大小（以字节为单位）
+            param_size = param.numel() * param.element_size()
+            total_size += param_size
+        return total_size
 
     def test_metrics(self):
         testloaderfull = self.load_test_data()

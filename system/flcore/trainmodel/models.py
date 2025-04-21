@@ -2,7 +2,6 @@ import math
 import torch
 import torch.nn.functional as F
 import torchvision
-import timm 
 from torch import nn, Tensor
 from flcore.trainmodel.bilstm import *
 from flcore.trainmodel.resnet import *

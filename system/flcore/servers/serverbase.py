@@ -19,13 +19,9 @@ class Server(object):
         self.dataset = args.dataset
         self.num_classes = args.num_classes
         self.global_rounds = args.global_rounds
-        self.start_round = args.start_round
-        self.end_round = args.end_round
         self.local_epochs = args.local_epochs
         self.batch_size = args.batch_size
         self.local_learning_rate = args.local_learning_rate
-        self.server_learning_rate = args.server_learning_rate
-        self.lamda = args.lamda
         self.num_clients = args.num_clients
         self.join_ratio = args.join_ratio
         self.random_join_ratio = args.random_join_ratio
@@ -50,8 +46,7 @@ class Server(object):
             self.logger.write("{} = {}".format(arg, getattr(args, arg)))
         self.logger.write("=" * 50)
 
-        for model in args.models:
-            self.logger.write(model)
+        self.logger.write(f"Model is {args.model}")
         self.logger.write("=" * 50)
         self.clients = []
         self.selected_clients = []
@@ -65,13 +60,25 @@ class Server(object):
         self.rs_test_auc = []
         self.rs_train_loss = []
 
+        # 记录当前轮次的时间开销
+        self.global_round_time_cost = []
+        
+        # 记录整个训练周期中客户端的计算和传输时间
+        self.all_clients_train_time = []
+        self.all_clients_trans_time = []
+
         self.eval_gap = args.eval_gap
         self.client_drop_rate = args.client_drop_rate
         self.train_slow_rate = args.train_slow_rate
         self.send_slow_rate = args.send_slow_rate
-
+        
+        # 初始化全局模型，使其常驻内存
+        self.global_model = copy.deepcopy(args.model).to(self.device)
 
     def set_clients(self, clientObj):
+        client_bindwith = self.simulate_trans_power(self.num_clients)
+        client_compute_power = self.simulate_compute_power(self.num_clients)
+
         for i, train_slow, send_slow in zip(range(self.num_clients), self.train_slow_clients, self.send_slow_clients):
             train_data = read_client_data(self.dataset, i, is_train=True)
             test_data = read_client_data(self.dataset, i, is_train=False)
@@ -79,10 +86,76 @@ class Server(object):
                             id=i, 
                             train_samples=len(train_data), 
                             test_samples=len(test_data), 
-                            train_slow=train_slow, 
-                            send_slow=send_slow,
-                            logger=self.logger)
+                            logger=self.logger,
+                            transmission_power=client_bindwith[i],
+                            compute_power=client_compute_power[i])
             self.clients.append(client)
+
+    def simulate_trans_power(self, num_clients):
+        # Define performance ratios
+        high_perf_ratio = 0.3  # 30% high-performance clients
+        mid_perf_ratio = 0.5   # 50% medium-performance clients
+        low_perf_ratio = 0.2   # 20% low-performance clients
+
+        # Calculate number of clients for each performance level
+        num_high_perf = int(self.num_clients * high_perf_ratio)
+        num_mid_perf = int(self.num_clients * mid_perf_ratio)
+        num_low_perf = self.num_clients - num_high_perf - num_mid_perf  # Ensure total matches self.num_clients
+
+        # Create and shuffle client performance list
+        client_performances = ['high'] * num_high_perf + ['mid'] * num_mid_perf + ['low'] * num_low_perf
+        random.shuffle(client_performances)
+
+        # Define bandwidth ranges (Mbps)
+        bandwidth_ranges = {
+            'high': (50, 100),  # High-speed network, 30%
+            'mid': (10, 50),    # Medium-speed network, 50%
+            'low': (1, 10)      # Low-speed network, 20%
+        }
+
+        client_bindwith = []
+
+        for i in range(num_clients):
+            # Assign bandwidth based on performance level
+            perf_level = client_performances[i]
+            min_bw, max_bw = bandwidth_ranges[perf_level]
+            bandwidth = random.uniform(min_bw, max_bw)
+            client_bindwith.append(bandwidth)
+
+        return client_bindwith
+
+    def simulate_compute_power(self, num_clients):
+        # 定义计算能力比例
+        high_perf_ratio = 0.3  # 30% 高性能客户端
+        mid_perf_ratio = 0.5   # 50% 中等性能客户端
+        low_perf_ratio = 0.2   # 20% 低性能客户端
+
+        # 计算每个性能级别的客户端数量
+        num_high_perf = int(self.num_clients * high_perf_ratio)
+        num_mid_perf = int(self.num_clients * mid_perf_ratio)
+        num_low_perf = self.num_clients - num_high_perf - num_mid_perf  # 确保总数匹配self.num_clients
+
+        # 创建并打乱客户端性能列表
+        client_performances = ['high'] * num_high_perf + ['mid'] * num_mid_perf + ['low'] * num_low_perf
+        random.shuffle(client_performances)
+
+        # 定义计算能力范围 (FLOPS倍数，相对于基准计算能力)
+        compute_ranges = {
+            'high': (2.0, 4.0),  # 高性能设备
+            'mid': (1.0, 2.0),   # 中等性能设备
+            'low': (0.25, 0.75)  # 低性能设备
+        }
+
+        client_compute_power = []
+
+        for i in range(num_clients):
+            # 根据性能级别分配计算能力
+            perf_level = client_performances[i]
+            min_compute, max_compute = compute_ranges[perf_level]
+            compute_power = random.uniform(min_compute, max_compute)
+            client_compute_power.append(compute_power)
+
+        return client_compute_power
 
     # random select slow clients
     def select_slow_clients(self, slow_rate):
@@ -102,6 +175,7 @@ class Server(object):
 
     def select_clients(self):
         if self.random_join_ratio:
+            # 从 [self.num_join_clients, self.num_clients] 中随机选择1个数
             self.current_num_join_clients = np.random.choice(range(self.num_join_clients, self.num_clients+1), 1, replace=False)[0]
         else:
             self.current_num_join_clients = self.num_join_clients
@@ -109,13 +183,13 @@ class Server(object):
 
         return selected_clients
 
-    def send_parameters(self):
+    def send_models(self):
         assert (len(self.clients) > 0)
 
         for client in self.clients:
             start_time = time.time()
             
-            client.set_parameters()
+            client.set_parameters(self.global_model)
 
             client.send_time_cost['num_rounds'] += 1
             client.send_time_cost['total_cost'] += 2 * (time.time() - start_time)
@@ -136,21 +210,45 @@ class Server(object):
         for i, w in enumerate(self.uploaded_weights):
             self.uploaded_weights[i] = w / tot_samples
 
-    def aggregate_parameters(self):
-        assert (len(self.uploaded_ids) > 0)
+    def receive_models(self):
+        assert (len(self.selected_clients) > 0)
 
-        client = self.clients[self.uploaded_ids[0]]
-        global_model = load_item(client.role, 'model', client.save_folder_name)
-        for param in global_model.parameters():
+        active_clients = random.sample(
+            self.selected_clients, int((1-self.client_drop_rate) * self.current_num_join_clients))
+
+        self.uploaded_ids = []
+        self.uploaded_weights = []
+        self.uploaded_models = []
+        tot_samples = 0
+        for client in active_clients:
+            try:
+                client_time_cost = np.mean(client.train_time_cost['cur_train_time_cost']) \
+                                    + np.mean(client.send_time_cost['cur_send_time_cost'])
+            except ZeroDivisionError:
+                client_time_cost = 0
+            if client_time_cost <= self.time_threthold:
+                tot_samples += client.train_samples
+                self.uploaded_ids.append(client.id)
+                self.uploaded_weights.append(client.train_samples)
+                self.uploaded_models.append(client.model)
+        for i, w in enumerate(self.uploaded_weights):
+            self.uploaded_weights[i] = w / tot_samples
+        
+    def aggregate_parameters(self):
+        if len(self.uploaded_ids) == 0:
+            self.logger.write("警告：本轮没有客户端上传模型，保持全局模型不变。")
+            return  # 跳过聚合，保持全局模型不变
+
+        # 使用常驻内存的全局模型，而不是从硬盘加载
+        for param in self.global_model.parameters():
             param.data.zero_()
             
         for w, cid in zip(self.uploaded_weights, self.uploaded_ids):
             client = self.clients[cid]
-            client_model = load_item(client.role, 'model', client.save_folder_name)
-            for server_param, client_param in zip(global_model.parameters(), client_model.parameters()):
+            # 直接使用客户端的模型，而不是从硬盘加载
+            for server_param, client_param in zip(self.global_model.parameters(), client.model.parameters()):
                 server_param.data += client_param.data.clone() * w
 
-        save_item(global_model, self.role, 'global_model', self.save_folder_name)
         
     def save_results(self):
         if not os.path.exists(self.save_folder_name):
@@ -173,6 +271,15 @@ class Server(object):
         #     except:
         #         self.logger.write('Already deleted.')
 
+    # For global model
+    def save_global_model(self):
+        if 'temp' not in self.save_folder_name:
+            if os.path.exists(self.model_folder_name) == False:
+                os.makedirs(self.model_folder_name)
+            save_item(self.global_model, self.role, 'global_model', self.model_folder_name)
+            self.logger.write('finish saving global model of server')
+
+    # For Heterogeneous Clients
     def save_models(self):
         # only save last trial model
         if (1 + self.cur_time) != self.total_times:
@@ -290,3 +397,43 @@ class Server(object):
             else:
                 raise NotImplementedError
         return True
+
+    def apply_resource_fluctuation(self, round_number):
+        """
+        对所有客户端应用资源波动
+        每隔 fluctuation_frequency 轮，改变客户端的计算能力和传输能力
+        
+        参数:
+            round_number: 当前轮次
+        """
+        if self.args.resource_fluctuation == False:
+            return
+        
+        # 只在指定频率的轮次应用波动
+        if round_number % self.args.fluctuation_frequency != 0:
+            return
+        
+        self.logger.write(f"\nApplying resource fluctuation in round {round_number}")
+        
+        # 为每个客户端生成随机波动因子
+        fluctuation_scale = self.args.fluctuation_scale
+        for client in self.clients:
+            # 计算能力波动: 在 [1-scale, 1+scale] 范围内随机波动
+            compute_factor = 1.0 + (2.0 * np.random.random() - 1.0) * fluctuation_scale
+            # 传输能力波动: 在 [1-scale, 1+scale] 范围内随机波动
+            transmission_factor = 1.0 + (2.0 * np.random.random() - 1.0) * fluctuation_scale
+            
+            # 应用波动
+            original_compute = client.compute_power
+            original_transmission = client.transmission_power
+            
+            client.compute_power *= compute_factor
+            client.transmission_power *= transmission_factor
+            
+            # 确保不会变得过小或过大
+            client.compute_power = max(0.1, min(5.0, client.compute_power))
+            client.transmission_power = max(1.0, min(100.0, client.transmission_power))
+            
+            # 记录变化
+            self.logger.write(f"Round {round_number}, Client {client.id}: Compute power {original_compute:.2f} -> {client.compute_power:.2f}, "
+                        f"Transmission power {original_transmission:.2f} -> {client.transmission_power:.2f}")
