@@ -130,6 +130,10 @@ if __name__ == "__main__":
                         help="Size of experience replay buffer in RL")
     parser.add_argument('-load_rl', "--load_rl_agents", type=str, default=None,
                         help="Path to pretrained RL agents folder")
+    parser.add_argument('--tau', type=float, default=0.005, help='软更新参数')
+    parser.add_argument('--hidden_size', type=int, default=64, help='隐藏层大小')
+    parser.add_argument('--critic_lr', type=float, default=0.0015, help='评论家网络学习率')
+    parser.add_argument('--alpha_lr', type=float, default=0.0005, help='熵系数学习率')
     
     # 奖励函数权重
     parser.add_argument('-w1', "--accuracy_weight", type=float, default=1.0,
